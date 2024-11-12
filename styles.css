@@ -1,0 +1,67 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+/* General page styling */
+body {
+    font-family: 'Arial', sans-serif;
+    background-color: #f2f2f2;
+    color: #333;
+    line-height: 1.6;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 20px;
+}
+
+/* Content styling */
+.content {
+    max-width: 1000px;  /* Limits text width to center it nicely */
+    margin: 0 auto;  /* Centers the content */
+    padding: 40px;
+    background-color: #ffffff;
+    border-radius: 8px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* Font and color styling for text */
+h2 {
+    font-family: 'Georgia', serif;
+    font-size: 1.8em;
+    color: #333;
+    margin-bottom: 15px;
+}
+
+p {
+    font-family: 'Arial', sans-serif;
+    font-size: 1em;
+    color: #555;
+}
+
+.image-container {
+    max-width: 600px;
+    text-align: center;
+    padding: 20px;
+    background-color: #ffffff;
+    border-radius: 8px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* Image styling */
+.image {
+    max-width: 50%;
+    height: auto;
+    border-radius: 8px;
+    margin-bottom: 10px;
+    padding: auto;
+}
+
+/* Caption styling */
+.caption {
+    font-style: italic;
+    color: #555;
+    font-size: 0.9em;
+}
