@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cudoku</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class = "content">
+        <h1 style="text-align: center;"><strong>Parallel Sudoku Solver</strong></h1>
+        <p style="text-align: center;"><span style="font-weight: 400;">Alvaro Luque (aluque), Josep Pujadas (jpujadas)</span></p>
+        <h2><strong>Summary</strong></h2>
+        <p><span style="font-weight: 400;">We plan to implement a parallel sudoku solver in CUDA C++. Our system will perform exhaustive depth-first search on input sudoku files, 
+            parallelizing across search paths, and output a solution file.</span></p>
+        <h2><strong>Background</strong></h2>
+        <p>
+            <span style="font-weight: 400;"> <p>
+                Sudoku is a logic puzzle game where a player inserts the numbers 1-9 into a 9 x 9 grid with the goal of filling up the entire grid such that every row, column, and 3 x 3 subgrid contains the 
+                numbers 1 through 9 with no repetitions. An example of a typical incomplete grid layout can be found below in <em>Figure 1</em>.
+            </p></span>
+            <span style="font-weight: 400;"><p>
+                The game begins with some of the grid cells already filled out. The &ldquo;difficulty&rdquo; of the game depends on how many cells are initially filled out (the more cells filled out initially, 
+                the easier it is to solve the puzzle and win the game). From here, the player will then continually scan the board and fill in cells with numerical values from 1&hellip;9. 
+                This is typically done by exploiting easy opportunities such as rows, columns, or subgrids that are nearly filled out since these have very few possible values left for the remaining cells. 
+                Usually players will make guesses for certain cells and go back and change their guesses if conflicts arise, and this iterative process continues until the board is solved.
+            </p></span>
+            <span style="font-weight: 400;"><p>
+                While the original game of sudoku is played on a 9x9 grid that is subdivided into 9 3 x 3 subgrids, the game can be extended to support <em>n x n</em> grids (i.e. a 16 x 16 grid divided into 16 4 x 4 subgrids, 25 x 25 divided into 25 5 x 5 subgrids, etc&hellip;). Extending the game into larger board sizes makes this a more interesting challenge to parallelize, as it increases dependencies and board area to distribute among threads.
+            </p></span>
+        </p>
+        
+        <center>
+            <img src="https://hourglassnewspaper.com/wp-content/uploads/2022/02/normalblank.jpg" class="image">
+            <figcaption class="caption">Figure 1: An example incomplete Sudoku board.</figcaption>
+        </center>
+        <h2 style="text-align: left;"><strong>The Challenge</strong></h2>
+        <p style="text-align: left;"><span style="font-weight: 400;">
+            Sudoku is a challenging game to parallelize as there are many dependencies between one cell as its peers. For example, any given cell is dependent on the other cells that are in the same 
+            row, column, or subgrid as itself. These inherent dependencies of the game means that threads in a parallel program will constantly need to be communicating with each other, 
+            which could become very costly, particularly with bigger grid sizes.
+        </span></p>
+        <p style="text-align: left;"><span style="font-weight: 400;">
+            The challenge is commonly approached with a backtracking, recursive approach where we guess a cell&rsquo;s value, move on to the next, and then backtrack if we encounter any conflicts. 
+            Such an approach brings some serious complications. It makes splitting up work very difficult since any thread could backtrack at any moment and interfere with other cells, 
+            and it&rsquo;s also very slow as we could potentially be exploring many different branches of many different solutions unnecessarily.
+        </span></p>
+        <p style="text-align: left;"><span style="font-weight: 400;">Other challenges that could arise are uneven distribution of workloads amongst threads as some sections of the puzzle 
+            may be significantly easier to solve than other sections, and potentially we might not even be able to solve entire sections of the board until another section is first solved.
+        </span></p>
+        <p style="text-align: left;"><span style="font-weight: 400;">
+            All of these issues make parallelizing Sudoku a very challenging and fun task.
+        </span></p>
+        <h2 style="text-align: left;"><strong>Resources</strong></h2>
+        <p style="text-align: left;"><span style="font-weight: 400;">
+            We plan to implement our system on the GHC machines which have suitable enough GPUs for our problem scale. We will implement our code from scratch, since a typical sequential 
+            sudoku solver is not too challenging to implement, and the bulk of the project work is the parallelization.
+        </span></p>
+        <h2 style="text-align: left;"><strong>
+            Goals and Deliverables
+        </strong></h2>
+        <p style="text-align: left;"><strong>
+            Plan to Achieve:
+        </strong></p>
+        <ul style="text-align: left;">
+            <li style="font-weight: 400;" aria-level="1"><span style="font-weight: 400;">
+                Implement a parallel Sudoku solver that can efficiently solve any valid 9 x 9 and 16 x 16 board
+            </span></li>
+            <li style="font-weight: 400;" aria-level="1"><span style="font-weight: 400;">
+                Implement a print function that can neatly print out solved Sudoku boards after the solver finishes running.
+            </span></li>
+            <li style="font-weight: 400;" aria-level="1"><span style="font-weight: 400;">
+                Display graphs measuring performance vs Sudoku board size and performance vs board difficulty. 
+                These graphs will be demonstrated at the poster session as a small study of how each of these two factors impact our solver's performance.
+            </span></li>
+        </ul>
+        <p style="text-align: left;"><strong>Hope to Achieve:</strong></p>
+        <ul style="text-align: left;">
+            <li style="font-weight: 400;" aria-level="1"><span style="font-weight: 400;">
+                Increase performance to less than 1.5 seconds for standard 9 x 9 Sudoku and achieve proportionately fast times for larger boards.
+            </span></li>
+        </ul>
+        <h2 style="text-align: left;"><strong>Platform Choice</strong></h2>
+        <p style="text-align: left;"><span style="font-weight: 400;">
+            CUDA is an ideal platform for implementing a parallel Sudoku solver due to its ability to handle massive parallelism efficiently on the GPU. 
+            Sudoku solving involves numerous independent sub-tasks, such as checking possible values for cells, that can be distributed across thousands of CUDA threads. 
+            This allows for significant speedup by leveraging the GPU's parallel processing capabilities, making it well-suited for the workload's highly parallelizable nature. &nbsp;
+        </span></p>
+        <h2 style="text-align: left;"><strong>Schedule</strong></h2>
+        <ul>
+            <li style="font-weight: 400; text-align: left;" aria-level="1"><span style="font-weight: 400;">
+                Week of 11/18: Set up scaffold sequential code, including parsing input files, basic backtracking search, and serializing to an output file.
+            </span></li>
+            <li style="font-weight: 400; text-align: left;" aria-level="1"><span style="font-weight: 400;">
+                Week of 11/25: Explore and/or design parallelism strategies for our algorithm and start implementing for standard 9x9 boards.
+            </span></li>
+            <li style="font-weight: 400; text-align: left;" aria-level="1"><span style="font-weight: 400;">
+                Week of 12/2: Finish implementing our parallel algorithm and expand to larger boards.
+            </span></li>
+            <li style="font-weight: 400; text-align: left;" aria-level="1"><span style="font-weight: 400;">
+                Week of 12/9: Perform experiments for speedup on different difficulty boards and write report.
+            </span></li>
+        </ul>
+    </div>
+
+</body>
