@@ -26,7 +26,58 @@ void usage(const char* progname) {
     printf("  -?  --help                 This message\n");
 }
 
-// __global__ void solveBoard(char* board)
+// both parameters are num_blocks size arrays
+__global__ void solveBoard(char* boards, char* statuses, int board_size){
+    char* board = &boards[sizeof(char) * board_size * board_size * blockIdx.x];
+    char status = statuses[sizeof(char) * blockIdx.x];
+
+    int board_dim = board_size * board_size;
+    int inner_board_dim = sqrtf(board_size);
+
+    // status = 0 if idle, 1 if running, 2 if done?
+    if(status == 1){
+        if( threadIdx.x < board_size && threadIdx.y < board_size){
+            char possibles = 0; // a bitmask for 1-board_size all possible
+            
+            for(int i = 0; i < board_size; ++i){
+                // Check the current row: (threadIdx.x, i)
+                int row_value = board[threadIdx.x * board_size + i];                
+                if(row_value){
+                    
+                    printf("%u, %u\n", possibles, possibles | (1 << (row_value-1)));
+                    possibles |= 1 << (row_value-1);
+                }
+                
+                // Current column: (i, threadIdx.y)
+                int col_value = board[i * board_size + threadIdx.y];
+                if(col_value){
+                    
+                    printf("%u, %u\n", possibles, possibles | (1 << (col_value-1)));
+                    possibles |= 1 << (col_value-1);
+                }
+                    
+            }
+            int inner_board_x = threadIdx.x - ( threadIdx.x % inner_board_dim);
+            int inner_board_y = threadIdx.y - ( threadIdx.y % inner_board_dim);
+
+            // check 3x3 subboard 
+            for(int i = inner_board_x; i < inner_board_x + inner_board_dim; ++i ){
+                for(int j = inner_board_y; j < inner_board_y + inner_board_dim; ++j ){
+                    int inner_board_value = board[i * board_size + j];
+                    if(inner_board_value){
+                        possibles |= 1 << (inner_board_value-1);
+                    }
+                }
+            }
+
+            // printf("%d, %d: %u\n", threadIdx.x, threadIdx.y, possibles);
+
+            
+        }
+
+        
+    }
+}
 
 int main(int argc, char** argv){
     
@@ -58,18 +109,30 @@ int main(int argc, char** argv){
 
     std::ifstream fin(board_filename);
     std::vector<char> first_board(board_size * board_size);
+    int tmp;
 
     for(int i = 0; i < board_size * board_size; ++i){
-        int tmp;
         fin >> tmp;
         first_board[i] = (char)tmp;
     }
 
     char* boards;
+    char* statuses;
+    int status = 1;
     
 
     cudaMalloc(&boards, sizeof(char) * board_size * board_size * NUM_BLOCKS);
-    cudaMemcpy(boards, &first_board, sizeof(char) * board_size * board_size, cudaMemcpyHostToDevice);
+    cudaMalloc(&statuses, sizeof(char) * NUM_BLOCKS);
+
+    cudaMemcpy(boards, first_board.data(), sizeof(char) * board_size * board_size, cudaMemcpyHostToDevice);
+    cudaMemcpy(statuses, &status, sizeof(char), cudaMemcpyHostToDevice);
+
+    dim3 blockDim(9,9);
+    dim3 gridDim(NUM_BLOCKS);
+    
+    solveBoard<<<gridDim, blockDim>>>(boards, statuses, 9);    
+
+    cudaDeviceSynchronize();
 
     // kernel launch
 }
