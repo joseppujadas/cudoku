@@ -27,14 +27,14 @@ void usage(const char* progname) {
 }
 
 // both parameters are num_blocks size arrays
-__global__ void solveBoard(char* boards, char* statuses, int board_size){
+__global__ void solveBoard(char* boards, int* statuses, int board_size){
     __shared__ int progress_flag;
     __shared__ int min_possibility_count;
     __shared__ int min_possibility_thread_idx_x;
     __shared__ int min_possibility_thread_idx_y;
 
     char* board = &boards[sizeof(char) * board_size * board_size * blockIdx.x];
-    char status = statuses[sizeof(char) * blockIdx.x];
+    int status = statuses[sizeof(char) * blockIdx.x];
 
     int board_dim = board_size * board_size;
     int inner_board_dim = sqrtf(board_size);
@@ -45,8 +45,9 @@ __global__ void solveBoard(char* boards, char* statuses, int board_size){
             int possibilities_count = 0;
             char possibles = 0; // a bitmask for 1-board_size all possible
             progress_flag = 1;
-
-            if(blockIdx.x == 0 && blockIdx.y == 0){
+            
+            // First thread in each block should reset the reductions.
+            if( threadIdx.x == 0 && threadIdx.y == 0){
                 min_possibility_count = board_size;
                 min_possibility_thread_idx_x = board_size;
                 min_possibility_thread_idx_y = board_size;
@@ -120,19 +121,35 @@ __global__ void solveBoard(char* boards, char* statuses, int board_size){
             if(possibilities_count == min_possibility_count){
                 atomicMin(&min_possibility_thread_idx_x, threadIdx.x);
             }
-            __syncthreads();
 
-            if(possibilities_count == min_possibility_count && threadIdx.x == min_possibility_thread_idx_x){
+            if(possibilities_count == min_possibility_count){
                 atomicMin(&min_possibility_thread_idx_y, threadIdx.y);
             }
             __syncthreads();
 
             // Fork on possibilities of cell with mininum possibilities
             if(threadIdx.x == min_possibility_thread_idx_x && threadIdx.y == min_possibility_thread_idx_y){
+                int next_block_index = blockIdx.x;
+       
                 for(int i = 0; i < board_size; ++i){
                     if(!(possibles & 1)){
                         int possible_value = i + 1;
-                        // Fork on possible_value
+
+                        if(next_block_index != blockIdx.x){
+                            // next_block == 0 ? 1 : 0, i.e. atomic compare a block to 0 (idle) and set to 1 (working)
+                            while(next_block_index < NUM_BLOCKS && atomicCAS(statuses + next_block_index, 0, 1) == 0)
+                                next_block_index++;
+                        }
+                    
+                        if(next_block_index <= NUM_BLOCKS){
+                            printf("Scheduling %d, %d to take a value of %d\n", threadIdx.x, threadIdx.y, possible_value);
+                            char* new_board = &boards[sizeof(char) * board_dim * next_block_index];
+                            memcpy(new_board, board, sizeof(char) * board_dim);
+                            new_board[ threadIdx.x * board_size + threadIdx.y] = possible_value;
+                        }
+                        else{
+                            break;
+                        }
                     }
                     possibles >>= 1;
                 }
@@ -179,15 +196,15 @@ int main(int argc, char** argv){
     }
 
     char* boards;
-    char* statuses;
+    int* statuses;
     int status = 1;
 
 
     cudaMalloc(&boards, sizeof(char) * board_size * board_size * NUM_BLOCKS);
-    cudaMalloc(&statuses, sizeof(char) * NUM_BLOCKS);
+    cudaMalloc(&statuses, sizeof(int) * NUM_BLOCKS);
 
     cudaMemcpy(boards, first_board.data(), sizeof(char) * board_size * board_size, cudaMemcpyHostToDevice);
-    cudaMemcpy(statuses, &status, sizeof(char), cudaMemcpyHostToDevice);
+    cudaMemcpy(statuses, &status, sizeof(int), cudaMemcpyHostToDevice);
 
     dim3 blockDim(9,9);
     dim3 gridDim(NUM_BLOCKS);
