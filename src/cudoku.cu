@@ -20,14 +20,6 @@ const int NUM_BLOCKS = 20000;
 __device__ bool solution_found;
 __device__ int solution_idx;
 
-void usage(const char* progname) {
-    printf("Usage: %s [options]\n", progname);
-    printf("Program Options:\n");
-    printf("  -f  --file  <FILENAME>     Path to the input file\n");
-    printf("  -s  --size  <INT>          The size of one side of the input board\n");
-    printf("  -?  --help                 This message\n");
-}
-
 // both parameters are num_blocks size arrays
 __global__ void solveBoard(char* boards, int* statuses, int board_size){
     __shared__ int progress_flag;
@@ -186,52 +178,18 @@ __global__ void solveBoard(char* boards, int* statuses, int board_size){
     }
 }
 
-int main(int argc, char** argv){
+int solveBoardHost(std::vector<char> first_board){
 
-    int opt;
-    static struct option options[] = {
-        {"help",     0, 0,  '?'},
-        {"file",     1, 0,  'f'},
-        {"size",     1, 0,  's'},
-        {0 ,0, 0, 0}
-    };
-
-    int board_size;
-    std::string board_filename;
-
-    while ((opt = getopt_long(argc, argv, "f:s:?", options, NULL)) != EOF) {
-        switch (opt) {
-            case 'f':
-                board_filename = optarg;
-                break;
-            case 's':
-                board_size = atoi(optarg);
-                break;
-            case '?':
-            default:
-                usage(argv[0]);
-                return 1;
-        }
-    }
-
-    std::ifstream fin(board_filename);
-    std::vector<char> first_board(board_size * board_size);
-    int tmp;
-
-    for(int i = 0; i < board_size * board_size; ++i){
-        fin >> tmp;
-        first_board[i] = (char)tmp;
-    }
-
+    int board_size = first_board.size();
     char* boards;
     int* statuses;
     int status = 1;
 
 
-    cudaMalloc(&boards, sizeof(char) * board_size * board_size * NUM_BLOCKS);
+    cudaMalloc(&boards, sizeof(char) * board_size * NUM_BLOCKS);
     cudaMalloc(&statuses, sizeof(int) * NUM_BLOCKS);
 
-    cudaMemcpy(boards, first_board.data(), sizeof(char) * board_size * board_size, cudaMemcpyHostToDevice);
+    cudaMemcpy(boards, first_board.data(), sizeof(char) * board_size, cudaMemcpyHostToDevice);
     cudaMemcpy(statuses, &status, sizeof(int), cudaMemcpyHostToDevice);
 
     dim3 blockDim(9,9);
@@ -241,10 +199,4 @@ int main(int argc, char** argv){
 
     cudaDeviceSynchronize();
 
-    // kernel launch
 }
-/**
-
-1 2 3 4 5 6
-
-*/

@@ -17,14 +17,6 @@
 #include <unistd.h>
 #include <omp.h>
 
-void usage(const char* progname) {
-    printf("Usage: %s [options]\n", progname);
-    printf("Program Options:\n");
-    printf("  -f  --file  <FILENAME>     Path to the input file\n");
-    printf("  -s  --size  <INT>          The size of one side of the input board\n");
-    printf("  -?  --help                 This message\n");
-}
-
 std::vector<char> solveHelp(std::vector<char> board, std::vector<int> row_possibles, 
                             std::vector<int> col_possibles, std::vector<int> inner_possibles){
     int board_size = sqrt(board.size());
@@ -200,6 +192,15 @@ bool verifySolve(std::vector<char> original, std::vector<char> solution){
     return true;
 }
 
+void usage(const char* progname) {
+    printf("Usage: %s [options]\n", progname);
+    printf("Program Options:\n");
+    printf("  -f  --file  <FILENAME>     Path to the input file\n");
+    printf("  -s  --size  <INT>          The size of one side of the input board\n");
+    printf("  -c  --cuda                 Whether to use the CUDA version (CPU by default)\n");
+    printf("  -?  --help                 This message\n");
+}
+
 int main(int argc, char** argv){
 
     int opt;
@@ -207,19 +208,24 @@ int main(int argc, char** argv){
         {"help",     0, 0,  '?'},
         {"file",     1, 0,  'f'},
         {"size",     1, 0,  's'},
+        {"cuda",     1, 0,  'c'},
         {0 ,0, 0, 0}
     };
 
     int board_size;
+    bool use_cuda = false;
     std::string board_filename;
 
-    while ((opt = getopt_long(argc, argv, "f:s:?", options, NULL)) != EOF) {
+    while ((opt = getopt_long(argc, argv, "f:s:c?", options, NULL)) != EOF) {
         switch (opt) {
             case 'f':
                 board_filename = optarg;
                 break;
             case 's':
                 board_size = atoi(optarg);
+                break;
+            case 'c':
+                use_cuda = true;
                 break;
             case '?':
             default:
@@ -228,6 +234,7 @@ int main(int argc, char** argv){
         }
     }
 
+    // Read board from input file
     std::ifstream fin(board_filename);
     std::vector<char> first_board(board_size * board_size);
     int tmp;
