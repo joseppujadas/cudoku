@@ -16,6 +16,8 @@
 #include <unistd.h>
 #include <omp.h>
 
+#include "cudoku.h"
+
 const int NUM_BLOCKS = 20000;
 __device__ bool solution_found;
 __device__ int solution_idx;
@@ -51,7 +53,7 @@ __global__ void solveBoard(char* boards, int* statuses, int board_size){
             }
 
             while(progress_flag){
-                if(threadIdx.x == 0 && threadIdx.y == 0){
+                if( threadIdx.x == 0 && threadIdx.y == 0){
                     progress_flag = 0;
                     done_flag = 1;
                 }
@@ -178,7 +180,7 @@ __global__ void solveBoard(char* boards, int* statuses, int board_size){
     }
 }
 
-int solveBoardHost(std::vector<char> first_board){
+std::vector<char> solveBoardHost(std::vector<char> first_board){
 
     int board_size = first_board.size();
     char* boards;
@@ -199,4 +201,5 @@ int solveBoardHost(std::vector<char> first_board){
 
     cudaDeviceSynchronize();
 
+    return {};
 }

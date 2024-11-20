@@ -17,6 +17,8 @@
 #include <unistd.h>
 #include <omp.h>
 
+#include "cudoku.h"
+
 std::vector<char> solveHelp(std::vector<char> board, std::vector<int> row_possibles, 
                             std::vector<int> col_possibles, std::vector<int> inner_possibles){
     int board_size = sqrt(board.size());
@@ -245,7 +247,15 @@ int main(int argc, char** argv){
     }
 
     printBoard(first_board);
-    std::vector<char> solution = solve(first_board);
+
+
+    std::vector<char> solution;
+    if(use_cuda){
+        solution = solveBoardHost(solution);
+    }
+    else{
+        solution = solve(first_board);
+    }
     printBoard(solution);
 
     if(verifySolve(first_board, solution)){

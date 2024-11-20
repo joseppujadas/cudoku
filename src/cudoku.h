@@ -1,0 +1,1 @@
+std::vector<char> solveBoardHost(std::vector<char> first_board);

@@ -1,9 +1,9 @@
 
 EXECUTABLE := sudoku
 
-CU_FILES   := 
+CU_FILES   := cudoku.cu
 
-CU_DEPS    := cudoku.cu
+CU_DEPS    := 
 
 CC_FILES   := sudoku.cpp
 
