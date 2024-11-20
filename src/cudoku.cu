@@ -17,6 +17,8 @@
 #include <omp.h>
 
 const int NUM_BLOCKS = 20000;
+__device__ bool solution_found;
+__device__ int solution_idx;
 
 void usage(const char* progname) {
     printf("Usage: %s [options]\n", progname);
@@ -29,6 +31,8 @@ void usage(const char* progname) {
 // both parameters are num_blocks size arrays
 __global__ void solveBoard(char* boards, int* statuses, int board_size){
     __shared__ int progress_flag;
+    __shared__ int done_flag;
+    __shared__ int error_flag;
     __shared__ int min_possibility_count;
     __shared__ int min_possibility_thread_idx_x;
     __shared__ int min_possibility_thread_idx_y;
@@ -44,24 +48,30 @@ __global__ void solveBoard(char* boards, int* statuses, int board_size){
         if(threadIdx.x < board_size && threadIdx.y < board_size){
             int possibilities_count = 0;
             char possibles = 0; // a bitmask for 1-board_size all possible
-            progress_flag = 1;
-            
+
             // First thread in each block should reset the reductions.
             if( threadIdx.x == 0 && threadIdx.y == 0){
+                progress_flag = 1;
+                error_flag = 0;
                 min_possibility_count = board_size;
                 min_possibility_thread_idx_x = board_size;
                 min_possibility_thread_idx_y = board_size;
             }
 
             while(progress_flag){
-                progress_flag = 0;
+                if(threadIdx.x == 0 && threadIdx.y == 0){
+                    progress_flag = 0;
+                    done_flag = 1;
+                }
                 __syncthreads();
 
+                // Get cell value and check if it has been filled
                 int board_value = board[threadIdx.x * board_size + threadIdx.y];
                 if(board_value){
-                    return;
+                    break;
                 }
 
+                done_flag = 0;
                 possibles = 0;
                 for(int i = 0; i < board_size; ++i){
                     // Check the current row: (threadIdx.x, i)
@@ -108,7 +118,25 @@ __global__ void solveBoard(char* boards, int* statuses, int board_size){
                     board[threadIdx.x * board_size + threadIdx.y] = update;
                     progress_flag = 1;
                 }
+
+                // If unfilled cell has no possibilities, then error
+                if(possibilities_count == 0){
+                    error_flag = 1;
+                }
                 __syncthreads();
+            }
+
+            // Flag is set only when every cell has been filled
+            if(done_flag){
+                solution_found = true;
+                solution_idx = sizeof(char) * board_dim * blockIdx.x;
+                return;
+            }
+
+            // If error flag is set, set status to idle
+            if(error_flag){
+                statuses[sizeof(char) * blockIdx.x] = 0;
+                return;
             }
 
             // No Deterministic Progress can be made in any cell.
@@ -130,7 +158,7 @@ __global__ void solveBoard(char* boards, int* statuses, int board_size){
             // Fork on possibilities of cell with mininum possibilities
             if(threadIdx.x == min_possibility_thread_idx_x && threadIdx.y == min_possibility_thread_idx_y){
                 int next_block_index = blockIdx.x;
-       
+
                 for(int i = 0; i < board_size; ++i){
                     if(!(possibles & 1)){
                         int possible_value = i + 1;
@@ -140,7 +168,7 @@ __global__ void solveBoard(char* boards, int* statuses, int board_size){
                             while(next_block_index < NUM_BLOCKS && atomicCAS(statuses + next_block_index, 0, 1) == 0)
                                 next_block_index++;
                         }
-                    
+
                         if(next_block_index <= NUM_BLOCKS){
                             printf("Scheduling %d, %d to take a value of %d\n", threadIdx.x, threadIdx.y, possible_value);
                             char* new_board = &boards[sizeof(char) * board_dim * next_block_index];
