@@ -251,7 +251,8 @@ int main(int argc, char** argv){
 
     std::vector<char> solution;
     if(use_cuda){
-        solution = solveBoardHost(solution);
+        printf("doing cuda\n");
+        solution = solveBoardHost(first_board);
     }
     else{
         solution = solve(first_board);
