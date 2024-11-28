@@ -21,25 +21,38 @@
 const int NUM_BLOCKS = 50000;
 
 
-// both parameters are num_blocks size arrays
 __global__ void solveBoard(char* boards, int* statuses, int board_size, int* solution_idx, int* solution_found){
+    
+    //.Static shared memory for block constants
     __shared__ int progress_flag;
     __shared__ int done_flag;
     __shared__ int error_flag;
     __shared__ int min_possibility_count;
     __shared__ int min_possibility_thread_idx;
 
+    // Dynamic shared memory for possibility sets based on board size
+    extern __shared__ int dynamic_shared_mem[];
+
+    int* row_possibles = dynamic_shared_mem;
+    int* col_possibles = &dynamic_shared_mem[board_size];
+    int* inner_possibles = &col_possibles[board_size];
+
     char* board = &boards[board_size * board_size * blockIdx.x];
     int status = statuses[blockIdx.x];
 
+    // Various size consants
     int board_dim = board_size * board_size;
-    int inner_board_dim = sqrtf(board_size);
+    int inner_board_size = sqrtf(board_size);
+    int inner_row = threadIdx.x / inner_board_size;
+    int inner_col = threadIdx.y / inner_board_size;
+    int inner_idx = inner_row * inner_board_size + inner_col;
+    
 
     // status = 0 if idle, 1 if running, 2 if done?
     if(status == 1 && threadIdx.x < board_size && threadIdx.y < board_size){
-        int possibilities_count = 0;
+        int possible_ct = 0;
         int possibles = 0; // a bitmask for 1-board_size all possible
-        char update = 0;
+        // char update = 0;
 
         // First thread in each block should reset the reductions.
         if( threadIdx.x == 0 && threadIdx.y == 0){
@@ -47,133 +60,136 @@ __global__ void solveBoard(char* boards, int* statuses, int board_size, int* sol
             error_flag = 0;
             done_flag = 0;
             min_possibility_count = board_size;
-            min_possibility_thread_idx = board_size;
+            min_possibility_thread_idx = board_size*board_size;
         }
-
         __syncthreads();
 
+        // Loop while progress can be made
         while(progress_flag && !done_flag && !error_flag){
 
             if( threadIdx.x == 0 && threadIdx.y == 0){
-                progress_flag = 0;
-                done_flag = 1;
+                progress_flag = false;
+                error_flag = false;
+                done_flag = true;
             }
-            possibilities_count = 0;
-            // printf("Thread %d, %d is here2\n", threadIdx.x, threadIdx.y);
+
+            if(threadIdx.x == 0 and threadIdx.y < board_size){
+                row_possibles[threadIdx.y] = 0;
+                col_possibles[threadIdx.y] = 0;
+                inner_possibles[threadIdx.y] = 0;
+            }
+            possible_ct = 0;
             __syncthreads();
             
             // Get cell value and check if it has been filled
-            int board_value = board[ threadIdx.x * board_size + threadIdx.y];
-            if(board_value == 0){
-                done_flag = 0;
-                possibles = 0;
-                for(int i = 0; i < board_size; ++i){
-                    // Check the current row: (threadIdx.x, i)
-                    int row_value = board[threadIdx.x * board_size + i];
-                    if(row_value){
-                        possibles |= (1 << (row_value-1));
-                    }
+            int val = board[ threadIdx.x * board_size + threadIdx.y]; 
+            int mask = 1 << (val-1);
 
-                    // Current column: (i, threadIdx.y)
-                    int col_value = board[i * board_size + threadIdx.y];
-                    if(col_value){
-                        possibles |= (1 << (col_value-1));
-                    }
+            // Generate row, column, inner board possibilities cooperatively.
+            // Use atomic updates to check if conflicting updates are made (and we need to fail).
+            if(val){
+                int old;
+                old = atomicOr(&row_possibles[threadIdx.x], mask);
 
+                if(old & mask){
+                    atomicExch(&error_flag, 1);
                 }
 
-                int inner_board_x = threadIdx.x - ( threadIdx.x % inner_board_dim);
-                int inner_board_y = threadIdx.y - ( threadIdx.y % inner_board_dim);
-
-                // check 3x3 subboard
-                for(int i = inner_board_x; i < inner_board_x + inner_board_dim; ++i ){
-                    for(int j = inner_board_y; j < inner_board_y + inner_board_dim; ++j ){
-                        int inner_board_value = board[i * board_size + j];
-                        if(inner_board_value){
-                            possibles |= 1 << (inner_board_value-1);
-                        }
-                    }
+                old = atomicOr(&col_possibles[threadIdx.y], mask);
+                if((old & mask)){
+                    error_flag = true;
                 }
 
-                // Find Deterministic updates first
-                int temp = possibles;
-                
-                for(char i = 0; i < board_size; ++i){
-                    if(!(temp & 1)){
-                        possibilities_count++;
-                        update = i + 1;
-                    }
-                    temp >>= 1;
+                old = atomicOr(&inner_possibles[inner_idx], mask);
+                if((old >> (val - 1)) & 1){
+                    error_flag = true;
                 }
             }
             __syncthreads();
 
-            // Deterministic Progress can be made
-            if(board_value == 0 and possibilities_count == 1){
-                board[threadIdx.x * board_size + threadIdx.y] = update;
-                progress_flag = 1;
-            }
+            // Update deterministically if possible
+            if(!val){
+                
+                done_flag = false;
 
-            // If unfilled cell has no possibilities, then error
-            if(board_value == 0 and possibilities_count == 0){
-                error_flag = 1;
+                possibles = row_possibles[ threadIdx.x ];
+                possibles |= col_possibles[ threadIdx.y ];
+                possibles |= inner_possibles[inner_idx];
+
+                int last_possible = 0;
+                possible_ct = 0;
+
+                for(int possible = 1; possible < board_size + 1; ++possible){
+                    if(!(possibles & (1 << (possible - 1)))){
+                        last_possible = possible;
+                        possible_ct += 1;
+                    }
+                }
+                // No possible values --> this solution is wrong somewhere.
+                if(possible_ct == 0)
+                    error_flag = true;
+                
+                // One possible value --> deterministic update.
+                if(possible_ct == 1){
+                    board[threadIdx.x * board_size + threadIdx.y] = last_possible;
+                    progress_flag = true;
+                }
             }
-            
             __syncthreads();
         }
-        // __syncthreads();
-        // If error flag is set, set status to idle
+
+        // If error flag is set, set status to idle for rescheduling
         if(error_flag){
-            statuses[blockIdx.x] = 0;
+            if( threadIdx.x + threadIdx.y == 0)
+                statuses[blockIdx.x] = 0;
             return;
         }
 
         // Flag is set only when every cell has been filled
-        if(done_flag && atomicCAS(solution_found, 0, 1) == 0){
-            printf("Thread %d, %d of block %d found solution\n", threadIdx.x, threadIdx.y, blockIdx.x);
-            *solution_found = true;
-            *solution_idx = blockIdx.x * board_dim;
-
+        if(done_flag){
+            if(threadIdx.x + threadIdx.y == 0){
+                *solution_found = true;
+                *solution_idx = blockIdx.x * board_dim;
+            }
             return;
         }
-        else if (done_flag) return;
 
         // No Deterministic Progress can be made in any cell.
         // First, find cell with minimum number of possibilities
-        if(possibilities_count != 0){
-            atomicMin(&min_possibility_count, possibilities_count);
+        if(possible_ct != 0){
+            atomicMin(&min_possibility_count, possible_ct);
         }
         __syncthreads();
 
-        if(possibilities_count == min_possibility_count){
+        // Then find minimum cell index of those to update (arbitrary but fixed choice)
+        if(possible_ct == min_possibility_count){
             atomicMin(&min_possibility_thread_idx, threadIdx.x * board_size + threadIdx.y);
         }
 
         __syncthreads();
 
         // Fork on possibilities of cell with mininum possibilities
-        if(min_possibility_thread_idx == threadIdx.x * board_size + threadIdx.y){
+        if(min_possibility_thread_idx == ( threadIdx.x * board_size + threadIdx.y)){
             int next_block_index = blockIdx.x;
 
-            for(int i = 0; i < board_size; ++i){
-                if(!(possibles & 1)){
-                    char possible_value = i + 1;
+            for(int possible = 1; possible < board_size+1; ++possible){
+                if(!(possibles & (1 << (possible - 1)))){
+
                     if(next_block_index != blockIdx.x){
+                        
                         // next_block == 0 ? 1 : 0, i.e. atomic compare a block to 0 (idle) and set to 1 (working)
                         while(next_block_index < NUM_BLOCKS && atomicCAS(&statuses[next_block_index], 0, 1) == 1)
                             next_block_index++;
                     }
 
-                    if(next_block_index <= NUM_BLOCKS){
-
+                    if(next_block_index < NUM_BLOCKS){
                         char* new_board = &boards[next_block_index * board_size * board_size];
                         memcpy(new_board, board, sizeof(char) * board_dim);
-                        new_board[ threadIdx.x * board_size + threadIdx.y] = possible_value;
+                        new_board[ threadIdx.x * board_size + threadIdx.y] = possible;
 
                         next_block_index++;
                     }
                 }
-                possibles >>= 1;
             }
         }
     }
@@ -191,31 +207,33 @@ std::vector<char> solveBoardHost(std::vector<char> board){
     int solution_idx;
     int* solution_idx_device;
 
+    // Allocate and initialize global memory
     cudaMalloc(&boards, sizeof(char) * board_size * NUM_BLOCKS);
     cudaMalloc(&statuses, sizeof(int) * NUM_BLOCKS);
     cudaMalloc(&solution_found_device, sizeof(int));
     cudaMalloc(&solution_idx_device, sizeof(int));
     
-    cudaMemcpy(boards, board.data(), sizeof(char) * board_size, cudaMemcpyHostToDevice);
+    cudaMemset(statuses, 0, sizeof(int) * NUM_BLOCKS);
     cudaMemcpy(statuses, &status, sizeof(int), cudaMemcpyHostToDevice);
-    cudaMemset(statuses + sizeof(int), 0, sizeof(int) * (NUM_BLOCKS - 1));
+    cudaMemcpy(boards, board.data(), sizeof(char) * board_size, cudaMemcpyHostToDevice);
     cudaMemcpy(solution_found_device, &solution_found, sizeof(int), cudaMemcpyHostToDevice);
 
     dim3 blockDim(9,9);
     dim3 gridDim(NUM_BLOCKS);
 
+    int shared_memory_req = sizeof(int) * sqrt(board_size) * 3;
+
+    // Call kernel in a loop to reschedule blocks until one finds a solution
     while(!solution_found){
-        // printf("------KERNEL CALL------\n");
-        solveBoard<<<gridDim, blockDim>>>(
+        solveBoard<<<gridDim, blockDim, shared_memory_req>>>(
             boards, statuses, 9, solution_idx_device, solution_found_device
         );
         // cudaDeviceSynchronize();
         cudaMemcpy(&solution_found, solution_found_device, sizeof(int), cudaMemcpyDeviceToHost);
     }
+    
+    // Copy board data back to host
     cudaMemcpy(&solution_idx, solution_idx_device, sizeof(int), cudaMemcpyDeviceToHost);
-    printf("%d\n", solution_idx/board_size);
-
-    cudaDeviceSynchronize();
     cudaMemcpy(board.data(), boards + solution_idx, board_size, cudaMemcpyDeviceToHost);
 
     return board;

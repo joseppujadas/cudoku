@@ -171,7 +171,10 @@ bool verifySolve(std::vector<char> original, std::vector<char> solution){
             char orig_val = original[i * board_size + j];
 
             // Solution should match all given values.
-            if(orig_val && orig_val != val) return false;
+            if(orig_val && orig_val != val){
+                printf("Solution did not match template at %d, %d\n", i, j);
+                return false;
+            }
 
             if(val){
                 int mask = 1 << (val - 1);
@@ -186,11 +189,20 @@ bool verifySolve(std::vector<char> original, std::vector<char> solution){
     }
     int target = (1 << board_size) - 1;
     for(int i = 0; i < board_size; ++i){
-        if(row_possibles[i] != target) return false;
-        if(col_possibles[i] != target) return false;
-        if(inner_possibles[i] != target) return false;
+        if(row_possibles[i] != target){
+            printf("Correctness failed on row %d\n", i);
+            return false;
+        } 
+        if(col_possibles[i] != target){
+            printf("Correctness failed on column %d\n", i);
+            return false;
+        } 
+        if(inner_possibles[i] != target){
+            printf("Correctness failed on inner grid %d\n", i);
+            return false;
+        } 
     }
-
+    printf("Correctness passed!\n");
     return true;
 }
 
@@ -251,7 +263,6 @@ int main(int argc, char** argv){
 
     std::vector<char> solution;
     if(use_cuda){
-        printf("doing cuda\n");
         solution = solveBoardHost(first_board);
     }
     else{
@@ -259,11 +270,7 @@ int main(int argc, char** argv){
     }
     printBoard(solution);
 
-    if(verifySolve(first_board, solution)){
-        printf("Correctness passed!\n");
-    }
-    else{
-        printf("Correctness failed\n");
-    }
+    verifySolve(first_board, solution);
+    
     return 1;
 }
