@@ -1,29 +1,18 @@
-#include <stdlib.h>
-#include <stdio.h>
-#include <getopt.h>
-#include <string>
-#include <iostream>
-#include <vector>
-#include <cmath>
-
-#include <algorithm>
-#include <fstream>
-#include <cassert>
-#include <iomanip>
 #include <chrono>
-#include <string>
+#include <cmath>
+#include <fstream>
+#include <getopt.h>
+#include <iomanip>
 #include <vector>
-
-#include <unistd.h>
-#include <omp.h>
 
 #include "cudoku.h"
+#include "util.h"
 
-std::vector<char> solveHelp(std::vector<char> board, std::vector<int> row_possibles, 
-                            std::vector<int> col_possibles, std::vector<int> inner_possibles){
+std::vector<char> solve(std::vector<char> board){
     int board_size = sqrt(board.size());
     int inner_board_size = sqrt(board_size);
 
+    
     bool progress = true;
     bool done = false;
     int min_possible_set = 0;
@@ -31,8 +20,30 @@ std::vector<char> solveHelp(std::vector<char> board, std::vector<int> row_possib
     int min_possible_row = 0;
     int min_possible_col = 0;
 
+    std::vector<int> row_possibles(board_size);
+    std::vector<int> col_possibles(board_size);
+    std::vector<int> inner_possibles(board_size);
+
     // Loop as long as deterministic progress can be made.
     while(progress && !done){
+
+        // Calculate possible values for each row and column once, then each cell checks later.
+        // 0 in bitmask = still possible, 1 = not possible.
+        for(int i = 0; i < board_size; ++i){
+            for(int j = 0; j < board_size; ++j){
+                char val = board[i * board_size + j];
+                if(val){
+                    int mask = 1 << (val - 1);
+                    row_possibles[i] |= mask;
+                    col_possibles[j] |= mask;
+                    
+                    int inner_row = i / inner_board_size;
+                    int inner_col = j / inner_board_size;
+                    inner_possibles[inner_row * inner_board_size + inner_col] |= mask;
+                }
+            }
+        }
+        
         progress = false;
         done = true;
         
@@ -104,7 +115,7 @@ std::vector<char> solveHelp(std::vector<char> board, std::vector<int> row_possib
             inner_possibles[inner_row * inner_board_size + inner_col] |= mask;
 
             // Fork with updated vars
-            std::vector<char> fork_result = solveHelp(board, row_possibles, col_possibles, inner_possibles);
+            std::vector<char> fork_result = solve(board);
             if(fork_result.size())
                 return fork_result;
 
@@ -119,124 +130,51 @@ std::vector<char> solveHelp(std::vector<char> board, std::vector<int> row_possib
     return {};
 }
 
-std::vector<char> solve(std::vector<char>& board){
-    int board_size = sqrt(board.size());
-    int inner_board_size = sqrt(board_size);
+double solveBoardSequential(std::vector<std::vector<char>> boards){
 
-    std::vector<int> row_possibles(board_size);
-    std::vector<int> col_possibles(board_size);
-    std::vector<int> inner_possibles(board_size);
-    
+    double total_time = 0;
+    for(const auto& board : boards){
 
-    // Calculate possible values for each row and column once, then each cell checks later.
-    // 0 in bitmask = still possible, 1 = not possible.
-    for(int i = 0; i < board_size; ++i){
-        for(int j = 0; j < board_size; ++j){
-            char val = board[i * board_size + j];
-            if(val){
-                int mask = 1 << (val - 1);
-                row_possibles[i] |= mask;
-                col_possibles[j] |= mask;
-                
-                int inner_row = i / inner_board_size;
-                int inner_col = j / inner_board_size;
-                inner_possibles[inner_row * inner_board_size + inner_col] |= mask;
-            }
+        const auto compute_start = std::chrono::steady_clock::now();
+        std::vector<char> solution = solve(board);
+        const auto compute_time = std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - compute_start).count();
+
+        if(verifySolve(board, solution)){
+            total_time += compute_time;
         }
+        
     }
-    return solveHelp(board, row_possibles, col_possibles, inner_possibles);
-}
 
-void printBoard(std::vector<char> board){
-    int board_size = sqrt(board.size());
-
-    for(int i = 0; i < board_size * board_size; ++i){
-        if(i % board_size == 0) printf("\n");
-        printf("%d ", board[i]);
-    }
-    printf("\n");
-}
-
-bool verifySolve(std::vector<char> original, std::vector<char> solution){
-    int board_size = sqrt(original.size());
-    int inner_board_size = sqrt(board_size);
-
-    std::vector<int> row_possibles(board_size);
-    std::vector<int> col_possibles(board_size);
-    std::vector<int> inner_possibles(board_size);
-
-    for(int i = 0; i < board_size; ++i){
-        for(int j = 0; j < board_size; ++j){
-            char val = solution[i * board_size + j];
-            char orig_val = original[i * board_size + j];
-
-            // Solution should match all given values.
-            if(orig_val && orig_val != val){
-                printf("Solution did not match template at %d, %d\n", i, j);
-                return false;
-            }
-
-            if(val){
-                int mask = 1 << (val - 1);
-                row_possibles[i] |= mask;
-                col_possibles[j] |= mask;
-                
-                int inner_row = i / inner_board_size;
-                int inner_col = j / inner_board_size;
-                inner_possibles[inner_row * inner_board_size + inner_col] |= mask;
-            }
-        }
-    }
-    int target = (1 << board_size) - 1;
-    for(int i = 0; i < board_size; ++i){
-        if(row_possibles[i] != target){
-            printf("Correctness failed on row %d\n", i);
-            return false;
-        } 
-        if(col_possibles[i] != target){
-            printf("Correctness failed on column %d\n", i);
-            return false;
-        } 
-        if(inner_possibles[i] != target){
-            printf("Correctness failed on inner grid %d\n", i);
-            return false;
-        } 
-    }
-    printf("Correctness passed!\n");
-    return true;
-}
-
-void usage(const char* progname) {
-    printf("Usage: %s [options]\n", progname);
-    printf("Program Options:\n");
-    printf("  -f  --file  <FILENAME>     Path to the input file\n");
-    printf("  -s  --size  <INT>          The size of one side of the input board\n");
-    printf("  -c  --cuda                 Whether to use the CUDA version (CPU by default)\n");
-    printf("  -?  --help                 This message\n");
+    return total_time;
 }
 
 int main(int argc, char** argv){
 
     int opt;
     static struct option options[] = {
-        {"help",     0, 0,  '?'},
-        {"file",     1, 0,  'f'},
-        {"size",     1, 0,  's'},
-        {"cuda",     1, 0,  'c'},
+        {"help",     no_argument,       0,  '?'},
+        {"file",     required_argument, 0,  'f'},
+        {"size",     required_argument, 0,  's'},
+        {"trials",   required_argument, 0,  'n'},
+        {"cuda",     no_argument,       0,  'c'},
         {0 ,0, 0, 0}
     };
 
-    int board_size;
+    int board_size = 0;
+    int trials = 1;
     bool use_cuda = false;
     std::string board_filename;
 
-    while ((opt = getopt_long(argc, argv, "f:s:c?", options, NULL)) != EOF) {
+    while ((opt = getopt_long(argc, argv, "f:s:n:c?", options, NULL)) != EOF) {
         switch (opt) {
             case 'f':
                 board_filename = optarg;
                 break;
             case 's':
                 board_size = atoi(optarg);
+                break;
+            case 'n':
+                trials = atoi(optarg);
                 break;
             case 'c':
                 use_cuda = true;
@@ -247,30 +185,27 @@ int main(int argc, char** argv){
                 return 1;
         }
     }
+    if(board_filename == "" or board_size == 0){
+        usage(argv[0]);
+        exit(1);
+    } 
+    printf("%d\n", trials);
 
     // Read board from input file
     std::ifstream fin(board_filename);
-    std::vector<char> first_board(board_size * board_size);
+    std::vector<std::vector<char>> boards(trials);
+    
     int tmp;
-
-    for(int i = 0; i < board_size * board_size; ++i){
-        fin >> tmp;
-        first_board[i] = (char)tmp;
+    
+    for(int trial = 0; trial < trials; ++trial){
+        boards[trial].resize(board_size * board_size);
+        for(int i = 0; i < board_size * board_size; ++i){
+            fin >> tmp;
+            boards[trial][i] = (char)tmp;
+        }
     }
-
-    printBoard(first_board);
-
-
-    std::vector<char> solution;
-    if(use_cuda){
-        solution = solveBoardHost(first_board);
-    }
-    else{
-        solution = solve(first_board);
-    }
-    printBoard(solution);
-
-    verifySolve(first_board, solution);
+    printf("%lf\n", solveBoardSequential(boards));
+    printf("%lf\n", solveBoardHost(boards));
     
     return 1;
 }

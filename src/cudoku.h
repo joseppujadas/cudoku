@@ -1,1 +1,1 @@
-std::vector<char> solveBoardHost(std::vector<char> first_board);
+double solveBoardHost(std::vector<std::vector<char>> first_board);

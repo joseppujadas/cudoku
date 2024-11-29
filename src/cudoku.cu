@@ -1,27 +1,14 @@
-#include <stdlib.h>
-#include <stdio.h>
-#include <getopt.h>
-#include <string>
-#include <iostream>
 #include <vector>
-
-#include <algorithm>
-#include <fstream>
-#include <cassert>
-#include <iomanip>
 #include <chrono>
-#include <string>
-#include <vector>
-
-#include <unistd.h>
-#include <omp.h>
+#include <cstdio>
 
 #include "cudoku.h"
+#include "util.h"
 
 const int NUM_BLOCKS = 50000;
 
 
-__global__ void solveBoard(char* boards, int* statuses, int board_size, int* solution_idx, int* solution_found){
+__global__ void solveBoard(char* boards, int* statuses, int* solution_idx, int* solution_found){
     
     //.Static shared memory for block constants
     __shared__ int progress_flag;
@@ -30,6 +17,14 @@ __global__ void solveBoard(char* boards, int* statuses, int board_size, int* sol
     __shared__ int min_possibility_count;
     __shared__ int min_possibility_thread_idx;
 
+    // Various size consants
+    int board_size = blockDim.x;
+    int board_dim = board_size * board_size;
+    int inner_board_size = sqrtf(board_size);
+    int inner_row = threadIdx.x / inner_board_size;
+    int inner_col = threadIdx.y / inner_board_size;
+    int inner_idx = inner_row * inner_board_size + inner_col;
+    
     // Dynamic shared memory for possibility sets based on board size
     extern __shared__ int dynamic_shared_mem[];
 
@@ -39,14 +34,6 @@ __global__ void solveBoard(char* boards, int* statuses, int board_size, int* sol
 
     char* board = &boards[board_size * board_size * blockIdx.x];
     int status = statuses[blockIdx.x];
-
-    // Various size consants
-    int board_dim = board_size * board_size;
-    int inner_board_size = sqrtf(board_size);
-    int inner_row = threadIdx.x / inner_board_size;
-    int inner_col = threadIdx.y / inner_board_size;
-    int inner_idx = inner_row * inner_board_size + inner_col;
-    
 
     // status = 0 if idle, 1 if running, 2 if done?
     if(status == 1 && threadIdx.x < board_size && threadIdx.y < board_size){
@@ -86,22 +73,23 @@ __global__ void solveBoard(char* boards, int* statuses, int board_size, int* sol
             int mask = 1 << (val-1);
 
             // Generate row, column, inner board possibilities cooperatively.
-            // Use atomic updates to check if conflicting updates are made (and we need to fail).
             if(val){
                 int old;
-                old = atomicOr(&row_possibles[threadIdx.x], mask);
 
+                // Old & mask indicates the bit was masked BEFORE this update, so there
+                // is a conflict.
+                old = atomicOr(&row_possibles[threadIdx.x], mask);
                 if(old & mask){
-                    atomicExch(&error_flag, 1);
+                    error_flag = true;
                 }
 
                 old = atomicOr(&col_possibles[threadIdx.y], mask);
-                if((old & mask)){
+                if(old & mask){
                     error_flag = true;
                 }
 
                 old = atomicOr(&inner_possibles[inner_idx], mask);
-                if((old >> (val - 1)) & 1){
+                if(old & mask){
                     error_flag = true;
                 }
             }
@@ -195,10 +183,10 @@ __global__ void solveBoard(char* boards, int* statuses, int board_size, int* sol
     }
 }
 
-std::vector<char> solveBoardHost(std::vector<char> board){
+double solveBoardHost(std::vector<std::vector<char>> boards){
 
-    int board_size = board.size();
-    char* boards;
+    int board_size = boards[0].size();
+    char* boards_device;
     int* statuses;
     int status = 1;
 
@@ -208,33 +196,48 @@ std::vector<char> solveBoardHost(std::vector<char> board){
     int* solution_idx_device;
 
     // Allocate and initialize global memory
-    cudaMalloc(&boards, sizeof(char) * board_size * NUM_BLOCKS);
+    cudaMalloc(&boards_device, sizeof(char) * board_size * NUM_BLOCKS);
     cudaMalloc(&statuses, sizeof(int) * NUM_BLOCKS);
     cudaMalloc(&solution_found_device, sizeof(int));
     cudaMalloc(&solution_idx_device, sizeof(int));
     
-    cudaMemset(statuses, 0, sizeof(int) * NUM_BLOCKS);
-    cudaMemcpy(statuses, &status, sizeof(int), cudaMemcpyHostToDevice);
-    cudaMemcpy(boards, board.data(), sizeof(char) * board_size, cudaMemcpyHostToDevice);
-    cudaMemcpy(solution_found_device, &solution_found, sizeof(int), cudaMemcpyHostToDevice);
 
-    dim3 blockDim(9,9);
+    dim3 blockDim(sqrt(board_size),sqrt(board_size));
     dim3 gridDim(NUM_BLOCKS);
 
     int shared_memory_req = sizeof(int) * sqrt(board_size) * 3;
 
-    // Call kernel in a loop to reschedule blocks until one finds a solution
-    while(!solution_found){
-        solveBoard<<<gridDim, blockDim, shared_memory_req>>>(
-            boards, statuses, 9, solution_idx_device, solution_found_device
-        );
-        // cudaDeviceSynchronize();
-        cudaMemcpy(&solution_found, solution_found_device, sizeof(int), cudaMemcpyDeviceToHost);
+    std::vector<char> solution(board_size);
+    double total_time = 0;
+    for(const auto& board : boards){
+        cudaMemset(statuses, 0, sizeof(int) * NUM_BLOCKS);
+        cudaMemcpy(statuses, &status, sizeof(int), cudaMemcpyHostToDevice);
+        solution_found = 0;
+        cudaMemcpy(solution_found_device, &solution_found, sizeof(int), cudaMemcpyHostToDevice);
+
+        
+        cudaMemcpy(boards_device, board.data(), sizeof(char) * board_size, cudaMemcpyHostToDevice);
+
+        // Call kernel in a loop to reschedule blocks until one finds a solution
+        while(!solution_found){
+            solveBoard<<<gridDim, blockDim, shared_memory_req>>>(
+                boards_device, statuses, solution_idx_device, solution_found_device
+            );
+            
+            const auto compute_start = std::chrono::steady_clock::now();
+            cudaMemcpy(&solution_found, solution_found_device, sizeof(int), cudaMemcpyDeviceToHost);
+            total_time += std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - compute_start).count();
+        }
+        
+        // Copy board data back to host
+        cudaMemcpy(&solution_idx, solution_idx_device, sizeof(int), cudaMemcpyDeviceToHost);
+        cudaMemcpy(solution.data(), boards_device + solution_idx, board_size, cudaMemcpyDeviceToHost);
+        // const auto compute_time = 
+        
+        if(!verifySolve(board, solution)) printf("uh oh\n");
+
+       
     }
     
-    // Copy board data back to host
-    cudaMemcpy(&solution_idx, solution_idx_device, sizeof(int), cudaMemcpyDeviceToHost);
-    cudaMemcpy(board.data(), boards + solution_idx, board_size, cudaMemcpyDeviceToHost);
-
-    return board;
+    return total_time;
 }

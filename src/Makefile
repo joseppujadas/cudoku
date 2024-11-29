@@ -5,7 +5,7 @@ CU_FILES   := cudoku.cu
 
 CU_DEPS    := 
 
-CC_FILES   := sudoku.cpp
+CC_FILES   := util.cpp sudoku.cpp
 
 ###########################################################
 
@@ -18,7 +18,7 @@ LDFLAGS=-L/usr/local/cuda-11.7/lib64/ -lcudart
 NVCC=nvcc
 NVCCFLAGS=-O3 -m64 --gpu-architecture compute_61 -ccbin /usr/bin/gcc
 
-OBJS= $(OBJDIR)/cudoku.o $(OBJDIR)/sudoku.o
+OBJS= $(OBJDIR)/util.o $(OBJDIR)/cudoku.o $(OBJDIR)/sudoku.o
 
 
 .PHONY: dirs clean
