@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cudoku</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <nav class="menu-bar">
+        <a href="index.html" class="menu-link">Cudoku</a>
+        <a href="midpoint.html" class="menu-link">Midpoint Update</a>
+    </nav>
+
+    <div class = "content">
+        
+        <h2><strong>Work Completed So Far</strong></h2>
+        <p><span style="font-weight: 400;">
+            <b>Sequential Sudoku Solver</b> - We completed a sequential C++ implementation for a Sudoku solver using a recursive forking algorithm. 
+            After making deterministic progress for as long as it can, the sequential solver then makes a guess for a cell, attempts to recursively solve the board with this guess, 
+            and then backtracks and changes the guess if no solution is found. It does this until it converges to a solution. This sequential implementation serves as a benchmark for comparison for our CUDA solver.
+        </span></p>
+
+        <p><span style="font-weight: 400;">
+            <b>CUDA Sudoku Solver</b> - Completed a working implementation of a parallel CUDA sudoku solver. 
+            The solver uses similar forking logic to that of the sequential solver, but it solves multiple possible boards simultaneously across many CUDA blocks until one converges to a solution.
+        </span></p>
+
+        <p><span style="font-weight: 400;">
+            Additionally, we have also created an input file with 100k different Sudoku boards and an executable that runs the CUDA implementation and the 
+            Sequential implementation on these inputs boards and displays their computation times. We also have debugging utilities such as printing a board 
+            and checking the correctness of a solved board against its template.
+        </span></p>
+
+        <h2><strong>Progress on Goals and Deliverables</strong></h2>
+        <p>
+            <span style="font-weight: 400;"> <p>
+                So far we believe we are making good progress towards our original goals and deliverables. In our original proposal we only aimed to have a CUDA implementation, but upon receiving 
+                staff feedback we now also plan to have an OpenMP Sudoku solver as part of our project, and we hope to compare the performance of both of these implementations as part of our final report. 
+                Currently, we believe we will be able to finish these goals by the deadline if we do not run into any major bugs during our implementation.
+            </p></span>
+
+            <span style="font-weight: 400;"><p>
+                Our goals and deliverables that we hope to achieve for the poster session are as follows:
+                <ul style="text-align: left;">
+                    <li style="font-weight: 400;" aria-level="1"><span style="font-weight: 400;">
+                        Three different Sudoku solver implementations (Sequential C++, CUDA, and OpenMP) capable of efficiently solving 9x9, 16x16, and 25x25 Sudoku boards and displaying the resulting solution.
+                    </span></li>
+                    <li style="font-weight: 400;" aria-level="1"><span style="font-weight: 400;">
+                        Graphs comparing the performance of these three implementations, which will be shown at the poster session.
+                    </span></li>
+                </ul>
+            </p></span>
+        </p>
+        
+        <h2 style="text-align: left;"><strong>Poster Session</strong></h2>
+        <p style="text-align: left;"><span style="font-weight: 400;">
+            At the poster session we are planning on showcasing two main deliverables:
+            <ul style="text-align: left;">
+                <li style="font-weight: 400;" aria-level="1"><span style="font-weight: 400;">
+                    We plan on displaying various graphs showing the difference in computation time for our implementations. We hope to have graphs for CUDA computation time vs 
+                    Sequential computation time vs OpenMP computation time.                 
+                </span></li>
+                <li style="font-weight: 400;" aria-level="1"><span style="font-weight: 400;">
+                    We plan on doing a live demo of our solvers, showcasing the printed solution for boards of various sizes.
+                </span></li>
+            </ul>
+
+        </span></p>
+
+        <h2 style="text-align: left;"><strong>Preliminary Results</strong></h2>
+        <p style="text-align: left;"><span style="font-weight: 400;">
+            As of right now, our sequential sudoku solver can solve 1000 boards in about 0.005 seconds, while the best performing CUDA version is about ten times slower at about 0.05 seconds.
+        </span></p>
+
+        <h2 style="text-align: left;"><strong>
+            Issues and Concerns
+        </strong></h2>
+        <p style="text-align: left;">
+            A current issue with our CUDA implementation is that kernel overhead is significantly hindering our solver's performance. Our current implementation is far slower than our sequential reference implementation, 
+            and one major concern is that we may not be able to make performance significantly better as the overhead caused by the kernels may outscale the performance benefits of parallelizing the solving process.
+        </p>
+        <p style="text-align: left;">
+            Currently, we are unsure of how challenging it will be to parallelize Sudoku using OpenMP as we have not begun our implementation as of this midpoint report. 
+            We do have some concern that OpenMP primitives may not allow for smooth parallelization of Sudoku like CUDA does, but this is still unknown to us. 
+            We do worry that if implementation proves to be far more challenging than CUDA, then we may not be able to reach our goals for the poster session.
+        </p>
+    </div>
+
+</body>

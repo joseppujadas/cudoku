@@ -6,6 +6,8 @@
 
 /* General page styling */
 body {
+    margin-top: 30px;
+
     font-family: 'Arial', sans-serif;
     background-color: #f2f2f2;
     color: #333;
@@ -14,7 +16,7 @@ body {
     align-items: center;
     justify-content: center;
     min-height: 100vh;
-    padding: 20px;
+    padding: 30px;
 }
 
 /* Content styling */
@@ -64,4 +66,28 @@ p {
     font-style: italic;
     color: #555;
     font-size: 0.9em;
+}
+
+.menu-bar {
+    width: 100%;
+    background-color: #bfbebe;
+    padding: 10px;
+    position: fixed;
+    top: 0;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+    display: flex;
+}
+
+
+.menu-link {
+    font-family: 'Roboto', sans-serif;
+    color: #333333;
+    text-decoration: none;
+    margin: 0 15px;
+    font-size: 1.2em; /* Slightly larger for readability */
+    font-weight: 600; /* Bold text for emphasis */
+}
+
+.menu-link:hover {
+    color: #888888;
 }
