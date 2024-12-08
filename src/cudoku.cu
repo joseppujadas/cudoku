@@ -170,7 +170,7 @@ __global__ void solveBoard(char* boards, int* statuses, int* solution_idx){
                     if(next_block_index != blockIdx.x){
                         
                         // next_block == 0 ? 1 : 0, i.e. atomic compare a block to 0 (idle) and set to 1 (working)
-                        while(atomicCAS(&statuses[next_block_index], 0, 1) == 1)
+                        while(next_block_index < NUM_BLOCKS and atomicCAS(&statuses[next_block_index], 0, 1) == 1)
                             next_block_index++;
                     }
 
@@ -257,7 +257,7 @@ double solveBoardHost(std::vector<std::vector<char>> boards){
     for(int i = 0; i < num_trials; ++i){
         char* board = all_boards + (i * board_size);
         cudaMemcpy(solutions[i].data(), board, board_size, cudaMemcpyDeviceToHost);
-    }  
+    }
 
     cudaDeviceSynchronize();
     for(int i = 0; i < num_trials; ++i){

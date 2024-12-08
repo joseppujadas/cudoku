@@ -156,16 +156,14 @@ int main(int argc, char** argv){
         {"file",     required_argument, 0,  'f'},
         {"size",     required_argument, 0,  's'},
         {"trials",   required_argument, 0,  'n'},
-        {"cuda",     no_argument,       0,  'c'},
         {0 ,0, 0, 0}
     };
 
     int board_size = 0;
     int trials = 1;
-    bool use_cuda = false;
     std::string board_filename;
 
-    while ((opt = getopt_long(argc, argv, "f:s:n:c?", options, NULL)) != EOF) {
+    while ((opt = getopt_long(argc, argv, "f:s:n:?", options, NULL)) != EOF) {
         switch (opt) {
             case 'f':
                 board_filename = optarg;
@@ -175,9 +173,6 @@ int main(int argc, char** argv){
                 break;
             case 'n':
                 trials = atoi(optarg);
-                break;
-            case 'c':
-                use_cuda = true;
                 break;
             case '?':
             default:
