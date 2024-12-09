@@ -12,7 +12,6 @@ std::vector<char> solve(std::vector<char> board){
     int board_size = sqrt(board.size());
     int inner_board_size = sqrt(board_size);
 
-    
     bool progress = true;
     bool done = false;
     int min_possible_set = 0;
@@ -36,17 +35,17 @@ std::vector<char> solve(std::vector<char> board){
                     int mask = 1 << (val - 1);
                     row_possibles[i] |= mask;
                     col_possibles[j] |= mask;
-                    
+
                     int inner_row = i / inner_board_size;
                     int inner_col = j / inner_board_size;
                     inner_possibles[inner_row * inner_board_size + inner_col] |= mask;
                 }
             }
         }
-        
+
         progress = false;
         done = true;
-        
+
         // Check every cell. Make deterministic updates if possible, return if no
         // values left anywhere (i.e. wrong guess somewhere).
         for(int i = 0; i < board_size; ++i){
@@ -73,7 +72,7 @@ std::vector<char> solve(std::vector<char> board){
                     // No possible values --> this solution is wrong somewhere.
                     if(possible_ct == 0)
                         return {};
-                    
+
                     // Exactly one possible value --> deterministic update.
                     else if(possible_ct == 1){
                         board[i * board_size + j] = last_possible;
@@ -142,7 +141,7 @@ double solveBoardSequential(std::vector<std::vector<char>> boards){
         if(verifySolve(board, solution)){
             total_time += compute_time;
         }
-        
+
     }
 
     return total_time;
@@ -183,15 +182,15 @@ int main(int argc, char** argv){
     if(board_filename == "" or board_size == 0){
         usage(argv[0]);
         exit(1);
-    } 
+    }
     printf("%d\n", trials);
 
     // Read board from input file
     std::ifstream fin(board_filename);
     std::vector<std::vector<char>> boards(trials);
-    
+
     int tmp;
-    
+
     for(int trial = 0; trial < trials; ++trial){
         boards[trial].resize(board_size * board_size);
         for(int i = 0; i < board_size * board_size; ++i){
@@ -201,6 +200,6 @@ int main(int argc, char** argv){
     }
     printf("%lf\n", solveBoardSequential(boards));
     printf("%lf\n", solveBoardHost(boards));
-    
+
     return 1;
 }

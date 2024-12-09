@@ -9,7 +9,7 @@ const int NUM_BLOCKS = 1000;
 
 
 __global__ void solveBoard(char* boards, int* statuses, int* solution_idx){
-    
+
     //.Static shared memory for block constants
     __shared__ int progress_flag;
     __shared__ int done_flag;
@@ -24,7 +24,7 @@ __global__ void solveBoard(char* boards, int* statuses, int* solution_idx){
     int inner_row = threadIdx.x / inner_board_size;
     int inner_col = threadIdx.y / inner_board_size;
     int inner_idx = inner_row * inner_board_size + inner_col;
-    
+
     // Dynamic shared memory for possibility sets based on board size
     extern __shared__ int dynamic_shared_mem[];
 
@@ -67,9 +67,9 @@ __global__ void solveBoard(char* boards, int* statuses, int* solution_idx){
             }
             possible_ct = 0;
             __syncthreads();
-            
+
             // Get cell value and check if it has been filled
-            int val = board[ threadIdx.x * board_size + threadIdx.y]; 
+            int val = board[ threadIdx.x * board_size + threadIdx.y];
             int mask = 1 << (val-1);
 
             // Generate row, column, inner board possibilities cooperatively.
@@ -82,7 +82,7 @@ __global__ void solveBoard(char* boards, int* statuses, int* solution_idx){
 
                 // Old & mask indicates the bit was masked BEFORE this update, so there
                 // is a conflict.
- 
+
                 old = atomicOr(&row_possibles[threadIdx.x], mask);
                 if(old & mask){
                     error_flag = true;
@@ -102,7 +102,7 @@ __global__ void solveBoard(char* boards, int* statuses, int* solution_idx){
 
             // Update deterministically if possible
             if(!val){
-                
+
                 done_flag = false;
 
                 possibles = row_possibles[ threadIdx.x ];
@@ -121,7 +121,7 @@ __global__ void solveBoard(char* boards, int* statuses, int* solution_idx){
                 // No possible values --> this solution is wrong somewhere.
                 if(possible_ct == 0)
                     error_flag = true;
-                
+
                 // One possible value --> deterministic update.
                 if(possible_ct == 1){
                     board[threadIdx.x * board_size + threadIdx.y] = last_possible;
@@ -168,7 +168,7 @@ __global__ void solveBoard(char* boards, int* statuses, int* solution_idx){
                 if(!(possibles & (1 << (possible - 1)))){
 
                     if(next_block_index != blockIdx.x){
-                        
+
                         // next_block == 0 ? 1 : 0, i.e. atomic compare a block to 0 (idle) and set to 1 (working)
                         while(next_block_index < NUM_BLOCKS and atomicCAS(&statuses[next_block_index], 0, 1) == 1)
                             next_block_index++;
@@ -180,10 +180,10 @@ __global__ void solveBoard(char* boards, int* statuses, int* solution_idx){
                     if(next_block_index != blockIdx.x){
                         memcpy(new_board, board, sizeof(char) * board_dim);
                     }
-                        
+
                     new_board[ threadIdx.x * board_size + threadIdx.y] = possible;
                     next_block_index++;
-                    
+
                 }
             }
         }
@@ -201,20 +201,22 @@ __global__ void solveBoardKernel(char* all_boards, int num_trials, int board_siz
 
     for(int i = 0; i < num_trials; i++){
         char* board = all_boards + (i * board_size * board_size);
-
+        if(board_size > 9){
+            memset(statuses, 0, sizeof(int) * NUM_BLOCKS);
+        }
         memcpy(boards_device, board, board_size * board_size);
         memcpy(statuses, &status, sizeof(int));
 
         *solution_idx = 1;
 
         while(*solution_idx == 1){
-            
+
             solveBoard<<<gridDim, blockDim, shared_memory_req>>>(
                 boards_device, statuses, solution_idx
             );
             cudaDeviceSynchronize();
         }
-        
+
         memcpy(board, boards_device + *solution_idx, board_size * board_size);
     }
 }
@@ -223,7 +225,7 @@ double solveBoardHost(std::vector<std::vector<char>> boards){
 
     int num_trials = boards.size();
     int board_size = boards[0].size();
-   
+
     char* all_boards;
     char* boards_device;
     int* statuses;
@@ -234,6 +236,8 @@ double solveBoardHost(std::vector<std::vector<char>> boards){
     cudaMalloc(&boards_device, sizeof(char) * board_size * NUM_BLOCKS);
     cudaMalloc(&statuses, sizeof(int) * NUM_BLOCKS);
     cudaMalloc(&solution_idx_device, sizeof(int));
+
+    //cudaMemset(all_boards, 0, sizeof(char) * board_size * num_trials);
 
     std::vector<std::vector<char>> solutions(num_trials);
 
@@ -247,10 +251,10 @@ double solveBoardHost(std::vector<std::vector<char>> boards){
     const auto compute_start = std::chrono::steady_clock::now();
 
     solveBoardKernel<<<1, 1>>>(
-        all_boards, num_trials, sqrt(board_size), boards_device, 
+        all_boards, num_trials, sqrt(board_size), boards_device,
         statuses, solution_idx_device
     );
-    
+
     cudaDeviceSynchronize();
     const auto compute_time = std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - compute_start).count();
 
@@ -263,6 +267,6 @@ double solveBoardHost(std::vector<std::vector<char>> boards){
     for(int i = 0; i < num_trials; ++i){
         verifySolve(boards[i], solutions[i]);
     }
-    
+
     return compute_time;
 }
