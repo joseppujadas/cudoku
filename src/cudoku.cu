@@ -8,7 +8,8 @@
 const int NUM_BLOCKS = 1000;
 
 
-__global__ void solveBoard(char* boards, int* statuses, int* solution_idx){
+__global__ void solveBoard(char* boards, int* statuses, int* solution_idx, char* original_board){
+
 
     //.Static shared memory for block constants
     __shared__ int progress_flag;
@@ -201,10 +202,8 @@ __global__ void solveBoardKernel(char* all_boards, int num_trials, int board_siz
 
     for(int i = 0; i < num_trials; i++){
         char* board = all_boards + (i * board_size * board_size);
-        if(board_size > 9){
-            memset(statuses, 0, sizeof(int) * NUM_BLOCKS);
-        }
         memcpy(boards_device, board, board_size * board_size);
+        memset(statuses, 0, sizeof(int) * NUM_BLOCKS);
         memcpy(statuses, &status, sizeof(int));
 
         *solution_idx = 1;
@@ -212,11 +211,12 @@ __global__ void solveBoardKernel(char* all_boards, int num_trials, int board_siz
         while(*solution_idx == 1){
 
             solveBoard<<<gridDim, blockDim, shared_memory_req>>>(
-                boards_device, statuses, solution_idx
+                boards_device, statuses, solution_idx, board
             );
             cudaDeviceSynchronize();
         }
 
+        //printf("%d\n",i);
         memcpy(board, boards_device + *solution_idx, board_size * board_size);
     }
 }
@@ -236,8 +236,6 @@ double solveBoardHost(std::vector<std::vector<char>> boards){
     cudaMalloc(&boards_device, sizeof(char) * board_size * NUM_BLOCKS);
     cudaMalloc(&statuses, sizeof(int) * NUM_BLOCKS);
     cudaMalloc(&solution_idx_device, sizeof(int));
-
-    //cudaMemset(all_boards, 0, sizeof(char) * board_size * num_trials);
 
     std::vector<std::vector<char>> solutions(num_trials);
 
@@ -265,7 +263,9 @@ double solveBoardHost(std::vector<std::vector<char>> boards){
 
     cudaDeviceSynchronize();
     for(int i = 0; i < num_trials; ++i){
-        verifySolve(boards[i], solutions[i]);
+        if(!verifySolve(boards[i], solutions[i])){
+            printf("%d\n\n", i);
+        };
     }
 
     return compute_time;
