@@ -13,8 +13,8 @@ ARCH=$(shell uname | sed -e 's/-.*//g')
 
 OBJDIR=objs
 CXX=g++ -m64
-CXXFLAGS=-O3 -Wall
-LDFLAGS=-L/usr/local/cuda-11.7/lib64/ -lcudadevrt -lcudart 
+CXXFLAGS=-O3 -Wall -std=c++17 -m64 -I. -fopenmp -Wno-unknown-pragmas
+LDFLAGS=-L/usr/local/cuda-11.7/lib64/ -lcudadevrt -lcudart -Xcompiler -fopenmp
 NVCC=nvcc
 NVCCFLAGS=-rdc=true -O3 -m64 --gpu-architecture compute_61 -ccbin /usr/bin/gcc
 
