@@ -8,7 +8,7 @@
 
 void printBoard(std::vector<char> board){
     int board_size = sqrt(board.size());
-
+    
     for(int i = 0; i < board_size * board_size; ++i){
         if(i % board_size == 0) printf("\n");
         printf("%d ", board[i]);
@@ -24,6 +24,7 @@ bool verifySolve(std::vector<char> original, std::vector<char> solution){
     std::vector<int> col_possibles(board_size);
     std::vector<int> inner_possibles(board_size);
 
+    // Generate possibility bitmasks for every row, column, and subgrid.
     for(int i = 0; i < board_size; ++i){
         for(int j = 0; j < board_size; ++j){
             char val = solution[i * board_size + j];
@@ -46,7 +47,13 @@ bool verifySolve(std::vector<char> original, std::vector<char> solution){
             }
         }
     }
+    
+    // Bit mask of 111111... for the first board_size bits.
     int target = (1 << board_size) - 1;
+
+    // Every bit mask should be equal to all ones for the first board_size bits.
+    // This indicates every value is present, since if any value was missing it
+    // indicates 0s or duplicate values.
     for(int i = 0; i < board_size; ++i){
         if(row_possibles[i] != target){
             printf("Correctness failed on row %d\n", i);
@@ -62,13 +69,4 @@ bool verifySolve(std::vector<char> original, std::vector<char> solution){
         } 
     }
     return true;
-}
-
-void usage(const char* progname) {
-    printf("Usage: %s [options]\n", progname);
-    printf("Program Options:\n");
-    printf("  -f  --file  <FILENAME>     Path to the input file\n");
-    printf("  -s  --size  <INT>          The size of one side of the input board\n");
-    printf("  -c  --cuda                 Whether to use the CUDA version (CPU by default)\n");
-    printf("  -?  --help                 This message\n");
 }
