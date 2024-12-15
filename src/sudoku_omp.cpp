@@ -59,7 +59,7 @@ std::vector<char> solveOMP(std::vector<char> board, int depth=1){
         // Check every cell. Make deterministic updates if possible, return if no
         // values left anywhere (i.e. wrong guess somewhere).
 
-        #pragma omp taskloop collapse(2) default(shared)
+        #pragma omp parallel for collapse(2) schedule(static) default(shared) firstprivate(row_possibles, col_possibles, inner_possibles)
         for(int i = 0; i < board_size; ++i){
             for(int j = 0; j < board_size; ++j){
 

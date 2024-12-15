@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cudoku</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <nav class="menu-bar">
+        <a href="index.html" class="menu-link">Proposal</a>
+        <a href="midpoint.html" class="menu-link">Midpoint Update</a>
+        <a href="final.html" class="menu-link">Final Report</a>
+    </nav>
+
+    <div class = "content">
+
+        <h1 style="text-align: center;"><strong>Cudoku: Parallel Sudoku Solver</strong></h1>
+        <p style="text-align: center;"><span style="font-weight: 400;">Alvaro Luque (aluque), Josep Pujadas (jpujadas)</span></p>
+        
+        <h2><strong>Summary</strong></h2>
+        <p><span style="font-weight: 400;">
+            We implemented three Sudoku solvers capable of solving 9x9 and 16x16 puzzles in C++, OpenMP, and CUDA. We parallelized a backtracking search algorithm across two dimensions: work done for each board cell, and exploring multiple search branches simultaneously. We found that OpenMP performed generally worse than a sequential version, while CUDA was significantly faster for larger and more difficult boards.
+        </span></p>
+
+        <h2><strong>Background</strong></h2>
+        <p>
+            <span style="font-weight: 400;"> <p>
+                Sudoku is a logic puzzle game where a player inserts the numbers 1-9 into a 9 x 9 grid with the goal of filling up the entire grid such that every row, column, and 3 x 3 subgrid contains the numbers 1 through 9 with no repetitions. An example of a typical incomplete grid layout can be found below in Figure 1.
+            </p></span>
+
+            <center>
+                <img src="https://hourglassnewspaper.com/wp-content/uploads/2022/02/normalblank.jpg" class="image">
+                <figcaption class="caption">Figure 1: An example incomplete Sudoku board.</figcaption>
+            </center>
+
+            <span style="font-weight: 400;"> <p>
+                The game begins with some of the grid cells already filled out. The “difficulty” of the game depends on how many cells are initially filled out (the more cells filled out initially, the easier it is to solve the puzzle and win the game). From here, the player will then continually scan the board and fill in cells with numerical values from 1…9. This is typically done by exploiting easy opportunities such as rows, columns, or subgrids that are nearly filled out since these have very few possible values left for the remaining cells. Usually players will make guesses for certain cells and go back and change their guesses if conflicts arise, and this iterative process continues until the board is solved.
+            </p></span>
+
+            <span style="font-weight: 400;"> <p>
+                While the original game of sudoku is played on a 9x9 grid that is subdivided into nine 3 x 3 subgrids, the game can be extended to support n x n grids (i.e. a 16 x 16 grid divided into 16 4 x 4 subgrids, 25 x 25 divided into 25 5 x 5 subgrids, etc…). Extending the game into larger board sizes makes this a more interesting challenge to parallelize, as it increases dependencies and board area to distribute among threads.
+            </p></span>
+
+            <h3><strong>Algorithm</strong></h3>
+
+            <span style="font-weight: 400;"> <p>
+                Although there exist many advanced techniques for solving sudoku deterministically, the simplest algorithm involves a form of guessing and checking. Abstractly, sudoku solving can be thought of as a depth-first search where values are chosen in cells until the board is solved or constraints are violated. If the partial solution is not valid, the search backtracks and branches on a different value. To reduce the search depth, the algorithm first performs deterministic updates (i.e. assign values to a cell which can only have one possible value) in a loop until no more are possible. This is done by first compiling lists of possible values remaining for each row, column, and subgrid, and then by sequentially looping through cells and checking the intersection of its possibility sets. This loop additionally checks for whether any cell is unassigned (if so, we have a solution), or if any cell has no possible values (if so, this solution is invalid). Then, the cell with the fewest possible values is branched on by assigning an arbitrary possible value and making a recursive call. The algorithm terminates when a board has no unassigned cells remaining.
+            </p></span>
+
+            <center>
+                <img src="sudoku_logic.png" class="image">
+                <figcaption class="caption">Figure 2: Visualization of generic Sudoku solving algorithm.</figcaption>
+            </center>
+
+            <span style="font-weight: 400;"> <p>
+                The parallelizable workload of this problem is twofold: first computing the possibility sets of cells for deterministic updates requires iterating over every cell in the board sequentially. We hypothesize that this can be accelerated in a straightforward way using threads to cooperate on shared data structures. Secondly and more importantly, the individual search nodes in the conceptual graph can be parallelized, with multiple different candidate boards being solved simultaneously. This is the more crucial and challenging part of parallelizing the problem, as the search nodes are dependent on each other and cannot be easily launched in parallel right from the start.
+            </p></span>
+
+            <span style="font-weight: 400;"> <p>
+                While this problem can theoretically be represented as a graph, the data structures necessary for implementation are much simpler. We use a character array to store boards, as the values stored in boards in our experiments are no larger than 25, and we use integer arrays to store the possibility sets. These sets are stored as bitmasks (one for each row, column, and subgrid) where if bit i-1 from the right is set, it indicates i is not a legal value for the corresponding row, column, or subgrid.
+            </p></span>
+
+        </p>
+        
+        <h2 style="text-align: left;"><strong>Approach</strong></h2>
+        <p style="text-align: left;"><span style="font-weight: 400;">
+            Our parallel implementation takes advantage of the spatial representation CUDA gives in two ways. Firstly, we used the thread system to distribute the work necessary for each cell within a single board. Secondly, we utilized the block system to execute parallel iterations of the search on boards with different nondeterministic assignments. 
+        </span></p>
+
+        <h3><strong>Thread Decomposition</strong></h3>
+        <p style="text-align: left;"><span style="font-weight: 400;">
+            Block dimensions in our program are determined by the board size, and each thread within a block is responsible for determining and computing updates for a single cell in the board. Boards are stored as a contiguous sequence of integers in device memory representing an integer array, and each thread computes its unique index via its threadIdx.
+        </span></p>
+
+        <p style="text-align: left;"><span style="font-weight: 400;">
+            Similar to the sequential solver, our parallel solver first computes deterministic updates cooperatively among threads. We utilize shared integer arrays for each block which contains bitmasks representing the possibility set for each row, column, and subgrid. Each thread computes its row, column, and subgrid index and, if the cell is already assigned a value, updates the corresponding bitmasks to have a 1 in the space corresponding to its value. This represents that that value is no longer available. 
+        </span></p>
+
+        <p style="text-align: left;"><span style="font-weight: 400;">
+            Once the remaining possibilities are calculated, the unassigned cells make deterministic updates in a loop (controlled by shared variables). Each thread computes its own possibility set from the row, column, and inner grid possibilities and overwrites its cell in the board memory if there is only one possibility. The loop continues as long as a cell has made progress (after the first iteration), some cell is unassigned, and no cell has no possibilities. The latter two cases indicate the search is done or that this branch is invalid. 
+        </span></p>
+
+        <center>
+            <img src="cuda_decomp.png" class="image">
+            <figcaption class="caption">Figure 3: Thread and block decomposition of our CUDA implementation.</figcaption>
+        </center>
+
+        <p style="text-align: left;"><span style="font-weight: 400;">
+            A unique consideration with the parallel implementation of this step that we did not have to consider in the sequential implementation is conflicting deterministic updates. In the sequential version, deterministic assignments update the possibility sets so that no deterministic assignments in the same search branch can violate the constraints. In CUDA, because the threads make their updates in parallel, it is possible for two threads to simultaneously make the same update, when in reality this should not be possible and the block should fail. To remedy this, we use atomic updates to the possibility set which, crucially, return the old value. If a thread makes an update and the possibility set is already masked for the value it updated to, then some thread must have made the same assignment between calculating the possibility set and this update. In this case the block is marked idle as there will be no possible solution. 
+        </span></p>
+
+        <h3><strong>Block Decomposition</strong></h3>
+
+        <p style="text-align: left;"><span style="font-weight: 400;">
+            After computing deterministic updates and assuming no failure, we utilize the block system to branch on possible assignments. Our approach to parallelizing the search space was to assign each board reached as the result of a nondeterministic assignment to a different block. Once all threads in a block finish making deterministic progress, the block uses shared variables to compute which cells have the minimum number of possible assignments, and the minimum thread index among these threads is chosen as the cell to branch on. These steps are implemented with atomic operations and __syncthreads(). The minimum thread then enters a loop where it allocates a new block to continue the search by copying the board memory into another block’s space and assigning its cell to a possible value.
+        </span></p>
+
+        <p style="text-align: left;"><span style="font-weight: 400;">
+            To discern which blocks are available to start a new search and which are already working on one, we use a separate memory region to keep track of block statuses. These are integer flags which are set to 0 if the block is idle and 1 if the block is working. New boards can only be copied into blocks which are idle, and the copying process involves atomically updating the status indicator before copying the board. We use an atomic test and set to ensure two blocks do not try to copy a board into the same block, and the flags are integers (rather than something smaller) to be compatible with atomic operations. 
+        </span></p>
+
+        <p style="text-align: left;"><span style="font-weight: 400;">
+            The kernel is called repeatedly in a loop so that blocks which have their statuses set to 1 will begin searching in the next call. One of the kernel parameters, along with the board and status memory, is an integer pointer which represents the index of a found solution. When a block finds a solution (determined by having no cells still equal to zero), it updates this variable, which signals to the kernel launcher to stop making new invocations. This parameter is used to access the global board memory to find the solution board.
+        </span></p>
+
+        <h3><strong>Memory Management Optimizations</strong></h3>
+
+        <p style="text-align: left;"><span style="font-weight: 400;">
+            Our implementation relies heavily on utilizing the intricacies of the CUDA memory model, including global and shared memory, and we worked extensively to optimize our approach and reduce the bottleneck memory management causes. One significant issue with global memory is constantly exchanging memory between host and device, particularly when copying the initial template board and copying back the solution. Because our implementation is designed to run on large numbers of boards at a time, we took advantage of the high bandwidth link between host and device by copying all boards to device once at the beginning of the trial. Then, for each puzzle, the unique board is copied into the first slot of the global board memory where the blocks can access it. Similarly, the solutions are stored in the same region of memory and copied back to the host once at the end of all trials.
+        </span></p>
+
+        <p style="text-align: left;"><span style="font-weight: 400;">
+            To achieve this implementation, we utilized dynamic parallelism in CUDA, wherein kernels are able to launch other kernels. A “controller” kernel (with only one thread and one block) handles the device-to-device memory copying and calls the solving kernel in a loop until a solution is found. Another dramatic benefit of this approach is that recognizing a solution is much faster than if the solving kernel was called directly by the host. Because we use a form of global indicator variable, the host would have to cudaMemcpy the value after every kernel call, which is extremely slow. The controller kernel can read the device variable directly and stop launching kernels as soon as it is updated.
+        </span></p>
+
+        <p style="text-align: left;"><span style="font-weight: 400;">
+            From a thread perspective, we make extensive use of shared memory to optimize the work done on a single board. Crucial to our implementation is dynamic shared memory, which allows the host to request both a fixed and variable amount of shared memory depending on parameters not known at compile time. Because our solution is generalizable to arbitrarily large Sudoku sizes (as long as they are perfect squares), and we store possibilities for rows, columns, and subgrids as integer arrays (the size of which vary with the board size), the kernels will need varying amounts of shared memory to cooperatively compute possibility sets. The host launches the kernel with a dynamic amount of shared memory, and the kernel additionally declares several fixed variables. Working with shared memory requires synchronization logic which took many iterations to perfect, the details of which are discussed in the next section. 
+        </span></p>
+
+        <h3><strong>Iteration</strong></h3>
+
+        <p style="text-align: left;"><span style="font-weight: 400;">
+            One alternative implementation which we experimented with towards the beginning of our development involved a much more basic mapping of the problem space onto the CUDA thread model. In our earliest version, when calculating the possibility sets, each thread would simply compute its own set independently by iterating over its respective row, column, and subgrid. Realizing this causes each individual cell to be examined many times (scaling with board size), we decided to use shared memory to cooperatively compute the updates. Each thread now makes exactly three writes, indicating that a value is not legal in its particular row, column, and subgrid, and unassigned cell threads can use these shared variables to compute deterministic updates.
+        </span></p>
+
+        <p style="text-align: left;"><span style="font-weight: 400;">
+            Synchronization was perhaps the most challenging part of our implementation, as we spent a significant amount of time reworking the kernel code to achieve a correct implementation. Because threads within a block collectively work on shared memory, __syncthreads() is necessary to ensure the correct values propagate before any thread proceeds. We use these barriers every time shared variables are initialized or updated, most notably when calculating the possibility sets and determining which thread will perform branching. The most complicated aspect was synchronizing the deterministic progress loop, as the loop guard relies on three shared variables - a flag each for whether deterministic progress has been made, whether a solution is found, and whether an error was detected. All threads must respect the values of these variables and act accordingly, and we had many versions which resulted in hanging as threads would diverge and wait at different barriers for each other.
+        </span></p>
+
+        <h3><strong>OpenMP</strong></h3>
+
+        <p style="text-align: left;"><span style="font-weight: 400;">
+            To serve as a comparison for our CUDA implementation, we used our reference sequential implementation to create a solver parallelized with OpenMP. We attempted to parallelize across the same two dimensions as the CUDA version: across work done by cells within a board, and across diverging boards in the search tree. For the former, we augmented a for loop which iterates over board cells to compute whether deterministic updates are possible with a taskloop pragma. Taskloop creates a task for each board iteration which is dynamically assigned to a thread when one becomes available, which proved more effective than static scheduling as this loop has a highly divergent workload. The body of the loop is conditional on a cell not having an assigned value, so the time to complete varies greatly across tasks, making dynamic scheduling more logical. We also experimented with the parallel for construct, which allows static and dynamic scheduling. We found that static scheduling generally had higher divergence, and dynamic had higher overhead than a simple taskloop as parallel for incurs the additional overhead of determining the task granularity. To parallelize across boards, the first call to the solver spawns a new task for every value which is forked on (using a similar taskloop construct). Subsequent threads perform their forks sequentially to mitigate the overhead. One issue we encountered with this approach was synchronizing and stopping threads when a solution is found, the effects of which are discussed in the results section.
+        </span></p>
+
+        <h2 style="text-align: left;"><strong>
+            Results
+        </strong></h2>
+
+        <h3><strong>Definition of Board Difficulty and Performance</strong></h3>
+
+        <p style="text-align: left;"><span style="font-weight: 400;">
+            For the purposes of this project, we define the difficulty of a Sudoku board by the number of initial clues provided. Boards with more initial clues are considered easier, while those with fewer clues are classified as more difficult. We define board difficulty in this way, since we observed that the number of initial clues directly correlated with the search depth (and thus the computational effort) required to solve the board. Boards with a higher number of clues often allow for significant deterministic progress early in the solving process, whereas boards with fewer clues typically require more forking and, consequently, longer computation time.
+
+        </span></p>
+
+        <p style="text-align: left;"><span style="font-weight: 400;">
+            Additionally, we explored the impact of larger board sizes on the computation time of our solvers. We experimented with 16x16 boards alongside the standard 9x9 boards. We hypothesized that 16x16 boards would be significantly more challenging to solve due to the increased board size, which demands a substantially greater search depth to arrive at a solution.
+        </span></p>
+
+        <p style="text-align: left;"><span style="font-weight: 400;">
+            Finally, in these experiments, we will measure performance as the total computation time required for an algorithm to solve a given number of boards. For the CUDA implementation, this measure will include the time spent on memory transfers, such as copying board solutions back to the host at the end and intermediate memory transfers for sending boards to the solver kernel.
+        </span></p>
+
+        <h3><strong>Experimental Setup</strong></h3>
+        
+        <p style="text-align: left;"><span style="font-weight: 400;">
+            To evaluate the performance of our implementations, we generated 8 datasets, each containing 100 Sudoku boards. We designed these datasets to test a range of difficulties across two board sizes: 9x9 and 16x16. For each board size, we created four datasets representing varying levels of difficulty (Easy, Medium, Hard, and Extreme), determined by the number of initial clues provided. The number of initial clues was selected to ensure a consistent progression in difficulty.
+        </span></p>
+
+        <p style="text-align: left;"><span style="font-weight: 400;">
+            To generate the boards in these datasets, we first randomly filled in an empty board, ensuring to meet the constraints of no duplicates in any row, column, or subgrid. Once the board was fully filled, we removed numbers one at a time by setting random cells to zero. Each time we removed a number, we would run our solver on the board to ensure that it was still solvable. We then repeated this process until the board contained the desired number of starting clues.
+        </span></p>
+
+        <p style="text-align: left;"><span style="font-weight: 400;">
+            The generated datasets were structured as follows:
+        </span></p>
+
+        <span style="font-weight: 400;"><p>
+            <strong>9x9</strong>
+            <ul style="text-align: left;">
+                <li style="font-weight: 400;" aria-level="1"><span style="font-weight: 400;">
+                    <strong>Easy:</strong> 100 boards with 60 Initial clues
+                </span></li>
+                <li style="font-weight: 400;" aria-level="1"><span style="font-weight: 400;">
+                    <strong>Medium:</strong>  100 boards with 45 initial clues
+                </span></li>
+                <li style="font-weight: 400;" aria-level="1"><span style="font-weight: 400;">
+                    <strong>Hard:</strong> 100 boards with 30 initial clues
+                </span></li>
+                <li style="font-weight: 400;" aria-level="1"><span style="font-weight: 400;">
+                    <strong>Extreme:</strong> 100 boards with 20 initial clues
+                </span></li>
+                
+            </ul>
+        </p></span>
+
+        <span style="font-weight: 400;"><p>
+            <strong>16x16</strong>
+            <ul style="text-align: left;">
+                <li style="font-weight: 400;" aria-level="1"><span style="font-weight: 400;">
+                    <strong>Easy:</strong> 100 boards with 150 Initial clues
+                </span></li>
+                <li style="font-weight: 400;" aria-level="1"><span style="font-weight: 400;">
+                    <strong>Medium:</strong>  100 boards with 125 initial clues
+                </span></li>
+                <li style="font-weight: 400;" aria-level="1"><span style="font-weight: 400;">
+                    <strong>Hard:</strong> 100 boards with 100 initial clues
+                </span></li>
+                <li style="font-weight: 400;" aria-level="1"><span style="font-weight: 400;">
+                    <strong>Extreme:</strong> 100 boards with 75 initial clues
+                </span></li>
+            </ul>
+        </p></span>
+
+        <h3><strong>Experiment 1: Board Difficulty vs Performance</strong></h3>
+        <p style="text-align: left;"><span style="font-weight: 400;">
+            For this first set of experiments, we will be comparing the total computation time of our three solver implementations. We will be comparing our baseline C++ Sequential solver with our CUDA implementation using 1000 blocks, and our OpenMP implementation using 8 cores.
+        </span></p>
+
+        <center>
+            <img src="graph1.png" class="image">
+            <figcaption class="caption">Figure 4: Total Computation Times of our Implementations on 100 9x9 Boards of Varying Difficulty 
+                </figcaption>
+        </center>
+
+        <center>
+            <img src="graph2.png" class="image">
+            <figcaption class="caption">Figure 5: Total Computation Times of our Implementations on one 16x16 Board of Varying Difficulty
+                </figcaption>
+        </center>
+
+        <center>
+            <img src="graph3.png" class="image">
+            <figcaption class="caption">Figure 6: Total Computation Times of CUDA and Sequential Implementations on 100 16x16 Boards of Varying Difficulty
+               </figcaption>
+        </center>
+
+        <p style="text-align: left;"><span style="font-weight: 400;">
+            In Figure 4 we see a comparison of the performance of our implementations on four different datasets of 9x9 boards of increasing difficulty. We see that the sequential implementation actually performed the best with these datasets, while the CUDA was the worst performer on the Easy, Medium, and Hard datasets and the OpenMP was the worst performer on the Extreme dataset. 
+        </span></p>
+
+        <p style="text-align: left;"><span style="font-weight: 400;">
+            In Figure 6, however, we see that our CUDA implementation significantly outperformed our sequential version when tested on the 16x16 datasets. Our OpenMP implementation, though, was by far the worst in these datasets as demonstrated by Figure 5 where OpenMP took around 13 seconds just to solve 1 Extreme difficulty board while the other two implementations took only fractions of a second.
+        </span></p>
+
+        <p style="text-align: left;"><span style="font-weight: 400;">
+            The poor performance of the CUDA implementation on the 9x9 datasets can be attributed to expensive memcpy operations and Kernel overhead, which greatly outweighed any benefits from parallelization. Put simply, the 9x9 boards were too computationally trivial, as they had a much shallower search space compared to the 16x16 boards. Timing analysis revealed that a significant portion of the CUDA implementation's runtime was spent on memory transfers during each kernel launch and at the end when solutions were copied from the device to the host rather than on actually solving the boards, which was nearly instantaneous. These memory operations and kernel overhead outweighed the minimal speedup achieved by our parallel implementation, since these boards could already be solved extremely quickly sequentially. 
+
+        </span></p>
+
+        <p style="text-align: left;"><span style="font-weight: 400;">
+            On the other hand, our CUDA implementation performed significantly better than the sequential solver on the larger 16x16 boards. The increased search depth of the 16x16 boards, especially at higher difficulty levels requiring more branching and forking, made the workload highly parallelizable. In this case, the benefits of parallelization were evident, as the memory transfer operations and kernel overhead constituted only a small fraction of the overall computation time.
+
+        </span></p>
+
+        <p style="text-align: left;"><span style="font-weight: 400;">
+            The generally poor performance of OpenMP when compared to other methods can be attributed to false sharing and task divergence. When parallelizing across cells within a board, the different threads all contribute to the same shared variables, namely the board and the possibility sets for each row, column, and subgrid. When one thread writes to the board, a cache invalidation causes a stall among the rest of the threads reading adjacent cells in the board (regardless of whether that particular board cell was needed), drastically reducing performance. For parallelization across boards, the key issue was signalling when a solution was found. In practice, all threads from the first iteration will complete their exhaustive searches, since it is impossible to return a value from an OpenMP thread while others are executing. We also experimented with thread cancellation, which was also significantly more expensive than a simple sequential search.
+        </span></p>
+
+        <h3><strong>Experiment 2: Number of Boards vs Speedup (CUDA)</strong></h3>
+
+        <center>
+            <img src="graph4.png" class="image">
+            <figcaption class="caption">Figure 7: Speedup of CUDA Implementation over Sequential on Varying Number of Boards Solved
+                </figcaption>
+        </center>
+
+        <p style="text-align: left;"><span style="font-weight: 400;">
+            As shown in Figure 7, the speedup of our CUDA implementation compared to the sequential solver increased as the number of boards solved grew. Thisreason for this improvement is that the overhead incurred by kernel launches is amortized across the solving of multiple boards. For instance, regardless of whether we solve 1 board or 100 boards, our CUDA implementation launches the solveBoardKernel only once. From within this kernel, additional kernel launches handle the scheduling and computation for multiple boards. Thus, when solving just one board, the overhead of this initial kernel launch constitutes a much larger portion of the total computation time. However, when solving 100 boards, the same overhead is distributed across all 100 boards, making it relatively insignificant and allowing for much greater speedup due to parallel computation.
+
+        </span></p>
+
+        <h2 style="text-align: left;"><strong>
+            List of Work by Each Student
+        </strong></h2>
+
+        <p style="text-align: left;"><span style="font-weight: 400;">
+            Both partners contributed equally to the project, and we collaborated on all parts of the project. Credit should be distributed 50/50.
+        </span></p>
+    </div>
+
+</body>
